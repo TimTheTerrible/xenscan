@@ -5,10 +5,10 @@ use strict;
 use TimUtil;
 use TimDB;
 
-use constant REPORT_ALL      => 0;
-use constant REPORT_HOSTS    => 1;
-use constant REPORT_PACKAGES => 2;
-use constant REPORT_GUESTS   => 3;
+use constant REPORT_ALL	=> 0;
+use constant REPORT_HOSTS	=> 1;
+use constant REPORT_PACKAGES	=> 2;
+use constant REPORT_GUESTS	=> 3;
 
 our $Limit = FALSE;
 our $List = FALSE;
@@ -16,65 +16,81 @@ our $Report = REPORT_ALL;
 our $Host = "";
 our $Package = "";
 our $Guest = "";
+our $Datacenter = "";
+our $Rebooted = FALSE;
 
 our %ParamDefs = (
-    "limit"     => {
-        name    => "Limit",
-        type    => PARAMTYPE_BOOL,
-        var     => \$Limit,
-        usage   => "--limit|-l",
-        comment => "Limit the number of iterations",
+    "limit"	=> {
+        name	=> "Limit",
+        type	=> PARAMTYPE_BOOL,
+        var	=> \$Limit,
+        usage	=> "--limit|-l",
+        comment	=> "Limit the number of iterations",
     },
-    "list"     => {
-        name    => "List",
-        type    => PARAMTYPE_BOOL,
-        var     => \$List,
-        usage   => "--list",
-        comment => "List the desired entities (requires --report=<hosts|packages>)",
+    "list"	=> {
+        name	=> "List",
+        type	=> PARAMTYPE_BOOL,
+        var	=> \$List,
+        usage	=> "--list",
+        comment	=> "List the desired entities (requires --report=<hosts|packages>)",
     },
-    "report"     => {
-        name    => "Report",
-        type    => PARAMTYPE_ENUM,
-        var     => \$Report,
-        usage   => "--report|-r",
-        comment => "Select the report type",
-        selectors => {
+    "report"	=> {
+        name	=> "Report",
+        type	=> PARAMTYPE_ENUM,
+        var	=> \$Report,
+        usage	=> "--report|-r",
+        comment	=> "Select the report type",
+        selectors	=> {
             all		=> REPORT_ALL,
             hosts	=> REPORT_HOSTS,
             packages	=> REPORT_PACKAGES,
             guests	=> REPORT_GUESTS,
         },
     },
-    "host"     => {
-        name    => "Host",
-        type    => PARAMTYPE_STRING,
-        var     => \$Host,
-        usage   => "--host",
-        comment => "Specify the host to scope by",
+    "host"	=> {
+        name	=> "Host",
+        type	=> PARAMTYPE_STRING,
+        var	=> \$Host,
+        usage	=> "--host",
+        comment	=> "Specify the host to scope by",
     },
-    "package"     => {
-        name    => "Package",
-        type    => PARAMTYPE_STRING,
-        var     => \$Package,
-        usage   => "--package",
-        comment => "Specify the package to scope by",
+    "package"	=> {
+        name	=> "Package",
+        type	=> PARAMTYPE_STRING,
+        var	=> \$Package,
+        usage	=> "--package",
+        comment	=> "Specify the package to scope by",
     },
-    "guest"     => {
-        name    => "Guest",
-        type    => PARAMTYPE_STRING,
-        var     => \$Guest,
-        usage   => "--guest|-g",
-        comment => "Specify the guest to scope by",
+    "guest"	=> {
+        name	=> "Guest",
+        type	=> PARAMTYPE_STRING,
+        var	=> \$Guest,
+        usage	=> "--guest",
+        comment	=> "Specify the guest to scope by",
+    },
+    "dc"	=> {
+        name	=> "Datacenter",
+        type	=> PARAMTYPE_STRING,
+        var	=> \$Datacenter,
+        usage	=> "--dc",
+        comment	=> "Specify the datacenter to scope by",
+    },
+    "rebooted"	=> {
+        name	=> "Rebooted",
+        type	=> PARAMTYPE_BOOL,
+        var	=> \$Rebooted,
+        usage	=> "--rebooted",
+        comment	=> "Show only hosts whose rebooted flag matches",
     },
 );
 
 our $DSN = {
-    dbhost      => "localhost",
-    dbname      => "xenscan",
-    dbuser      => "xenscan",
-    dbpass      => qw/xenscan/,
-    dbbackend   => "Pg",
-    dbport      => 5432,
+    dbhost	=> "localhost",
+    dbname	=> "xenscan",
+    dbuser	=> "xenscan",
+    dbpass	=> qw/xenscan/,
+    dbbackend	=> "Pg",
+    dbport	=> 5432,
 };
 
 my $DB = TimDB->new($DSN);
@@ -103,7 +119,8 @@ sub report_hosts {
 
     my @hosts;
     
-    $DB->get_hashref_array(\@hosts, "SELECT * FROM hosts");
+    my $query = sprintf("SELECT * FROM hosts WHERE rebooted=%s", $Rebooted?"true":"false");
+    $DB->get_hashref_array(\@hosts, $query);
     debugdump(DEBUG_DUMP, "hosts", \@hosts);
 
     if ( $List ) {
@@ -203,7 +220,11 @@ sub report_guests {
 
     my @guests;
 
-    $DB->get_hashref_array(\@guests, "SELECT guests.*,hosts.hostname FROM guests,hosts WHERE hosts.id=guests.host_id");
+    my $query = sprintf("SELECT DISTINCT guests.*,hosts.hostname FROM guests,hosts WHERE hosts.id=guests.host_id AND hosts.rebooted=%s",
+        $Rebooted?"true":"false");
+
+    $DB->get_hashref_array(\@guests, $query);
+
     debugdump(DEBUG_DUMP, "guests", \@guests);
 
     if ( $List ) {
@@ -217,7 +238,8 @@ sub report_guests {
         printf("Guests by host:\n\n");
         if ( $Host eq "" ) {
             my @hosts;
-            $DB->get_hashref_array(\@hosts, "SELECT * FROM hosts");
+            my $query = sprintf("SELECT * FROM hosts WHERE rebooted=%s", $Rebooted?"true":"false");
+            $DB->get_hashref_array(\@hosts, $query);
             foreach my $host ( @hosts ) {
                 printf("%s:\n", $host->{hostname});
                 foreach my $guest ( grep({$_->{hostname} eq $host->{hostname}} @guests) ) {
